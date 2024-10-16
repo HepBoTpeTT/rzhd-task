@@ -1,7 +1,7 @@
 import cv2
 import pandas as pd
 import tkinter as tk
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw, ImageFont
 from pathlib import Path
 from math import ceil
 
@@ -18,85 +18,91 @@ class SyncCheker:
             min_frame += 0.2 #Обновление минимальной временной метки 
             for player in self.video_players: player.update() #Обновление кадра для каждого объекта видеоплеера
             print('--------------------------')
-        self.window.after(speed, self.update_min_frame) #Функция запускается раз в speed времени главным окном tkinter
+
+        self.window.after(200, self.update_min_frame) #Функция запускается раз в speed времени главным окном tkinter
 
 
 class VideoPlayer:
     def __init__(self, window, video_source, annotation, row, col):
-        self.frame_id = 0 #Счётчик кадров
-        self.name = int(f"{row}{col}", 2) #Имя (id) объекта плеера
-        self.previous_frame = None #Обозначение предыдущего кадра
-        self.annotation_pd = annotation #Аннотация для видео
-        self.is_able_to_play = True #Флаг разрешения на воспроизведение
+        self.frame_id = 0
+        self.name = int(f"{row}{col}", 2)
+        self.previous_frame = None
+        self.annotation_pd = annotation
+        self.is_able_to_play = True
         
-        self.video_file = cv2.VideoCapture(video_source) #Захват видео объектом OpenCV
+        self.video_file = cv2.VideoCapture(video_source)
 
-        #Создание и настройка канваса для отображения кадров видео
-        self.canvas = tk.Canvas(window, width=int(self.video_file.get(cv2.CAP_PROP_FRAME_WIDTH)) / 2,
-                                        height=int(self.video_file.get(cv2.CAP_PROP_FRAME_HEIGHT)) / 2,
-                                background="black")
+        # Настройка канваса
+        self.canvas_width = int(self.video_file.get(cv2.CAP_PROP_FRAME_WIDTH)) // 2
+        self.canvas_height = int(self.video_file.get(cv2.CAP_PROP_FRAME_HEIGHT)) // 2
+        self.canvas = tk.Canvas(window, width=self.canvas_width, height=self.canvas_height,
+                                background="black", borderwidth=1, highlightthickness=0)
         self.canvas.grid(row=row, column=col)
 
+        #Шрифт и размер текста метки старого кадра
+        try:
+            self.font = ImageFont.truetype(str(Path('fonts','arial.ttf')), 24)  # Укажите путь к шрифту и размер
+        except IOError:
+            self.font = ImageFont.load_default()
+
     def update(self):
-        global is_playing
-        if not self.is_able_to_play: return #Пропустить, если нет разрешения на воспроизведение
+        #Пропускаем, если нет разрешения на воспроизведение
+        if not self.is_able_to_play: return
+        
         try:
             next_frame_timestamp = self.annotation_pd.iloc[self.frame_id + 1].values[0]
+            time_diff = (next_frame_timestamp - min_frame) / 0.1 #Вычисление разницы между текущей временной меткой и следующей для этого видео
+            
+            if 0 <= ceil(time_diff) <= 2: #Если разница в пределах 200мс, то выводим новый кадр
+                self.display_frame()
 
-            # Если разница между следующим кадром ролика и текущей временной меткой в пределах 200мс, отобразить следующий кадр
-            if 0 <= ceil((next_frame_timestamp - min_frame) / 0.1) <= 2:
-                ret, frame = self.video_file.read()
-                if ret is None: return ValueError()
+            elif self.previous_frame is not None: #Иначе, если прошлый кадр непустой, выводим его
+                self.display_previous_frame()
 
-                self.previous_frame = frame
-
-                canvas_width = self.canvas.winfo_width()
-                canvas_height = self.canvas.winfo_height()
-
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img = Image.fromarray(frame)
-                img = img.resize((canvas_width, canvas_height))
-
-                imgtk = ImageTk.PhotoImage(image=img)
-
-                self.canvas.create_image(0, 0, anchor=tk.NW, image=imgtk)
-                self.canvas.imgtk = imgtk
-
-                print(f"Player {self.name} \t frame {self.frame_id}\t\tGOOD")
-                self.frame_id += 1
-                    
-
-            # Иначе, если предыдущий кадр непустой, то повторить его (разница временных меток больше 200мс => больше одного кадра)
-            elif self.previous_frame is not None:
-                canvas_width = self.canvas.winfo_width()
-                canvas_height = self.canvas.winfo_height()
-
-                frame = self.previous_frame
-
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img = Image.fromarray(frame)
-                img = img.resize((canvas_width, canvas_height))
-
-                imgtk = ImageTk.PhotoImage(image=img)
-
-                self.canvas.create_image(0, 0, anchor=tk.NW, image=imgtk)
-                self.canvas.imgtk = imgtk
-                print(f"Player {self.name} \t frame {self.frame_id}\t\tBAD")
-
-            # Иначе ничего не отображать (ситуация, когда видео начинается позже самой ранней временной метки как минимум на 1 кадр)
-            else:
+            else: #Если прошлый кадр пустой, то не выводим ничего.
                 print(f"Player {self.name} \t frame {self.frame_id}\t\tNone")
-                
 
+        except IndexError:
+            self.video_file.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            self.frame_id = 0
+            self.is_able_to_play = False
+            
         except Exception as e:
             print(f"{e} : {e.__class__.__name__}")
 
-            # Если видео закончилось, то сбрасываем счётчик кадров и запрещаем дальнейшее его воспроизведение
-            if e is IndexError:
-                self.video_file.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                self.frame_id = 0
-                self.is_able_to_play = False
+    def display_frame(self):
+        ret, frame = self.video_file.read()
+        if not ret: return
+        
+        self.previous_frame = frame
+        self.show_image(frame, "GOOD")
+        self.frame_id += 1
 
+    def display_previous_frame(self):
+        self.show_image(self.previous_frame, "BAD")
+
+    def show_image(self, frame, status):
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(frame).resize((self.canvas_width, self.canvas_height))
+        
+        # Добавление условной метки
+        draw = ImageDraw.Draw(img)
+        text = "OLD" if status == "BAD" else ""
+        
+        if text:
+            # Получаем размеры текста
+            text_bbox = draw.textbbox((0, 0), text, font=self.font)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
+            
+            position = (10, 10)  # Позиция текста на изображении
+            draw.rectangle([position, (position[0] + text_width, position[1] + text_height + 10)], fill="red")
+            draw.text(position, text, fill="white", font=self.font)
+
+        imgtk = ImageTk.PhotoImage(image=img)
+        self.canvas.create_image(0, 0, anchor=tk.NW, image=imgtk)
+        self.canvas.imgtk = imgtk
+        print(f"Player {self.name} \t frame {self.frame_id}\t\t{status}")
 
 def read_timestamps(file_path):
         return pd.read_csv(file_path, header=None) #Получение данных из анноатции посредством pandas
@@ -115,21 +121,9 @@ def main():
     root.title("Video Player Test Task")
     root.resizable(True, True)
 
-    #Контейнер для кнопок изменения скорости
-    speed_buttons_frame = tk.Frame(root)
-    speed_buttons_frame.grid(row=3, column=0)
-
-    button1 = tk.Button(speed_buttons_frame, text="x0.2", command=lambda: change_speed(0.2), background="black", foreground="white")
-    button1.grid(row=0, column=0)
-
-    button2 = tk.Button(speed_buttons_frame, text="x1", command=lambda: change_speed(1), background="black", foreground="white")
-    button2.grid(row=0, column=1)
-
-    button3 = tk.Button(speed_buttons_frame, text="x10", command=lambda: change_speed(10), background="black", foreground="white")
-    button3.grid(row=0, column=2)
     
-    button4 = tk.Button(root, text="play / pause", command=lambda: play_pause(), background="black", foreground="white")
-    button4.grid(row=3, column=1)    
+    play_pause_button = tk.Button(root, text="play / pause", command=lambda: play_pause(), background="black", foreground="white")
+    play_pause_button.grid(row=2, column=1)    
 
     cells = 2 #Сетка 2х2 
     sync = SyncCheker(root) #Объект класса, обновляющего отображаемые кадры в канвасах
@@ -141,16 +135,6 @@ def main():
     sync.update_min_frame()
 
     root.mainloop()
-
-#Обработчик нажатия на кнопки изменения скорости
-def change_speed(koeff):
-    global speed, is_playing
-
-    saved_flag = is_playing
-    is_playing = False
-    speed = int(200//koeff)
-    print(f'\nupdate period:{speed}ms / {1000//speed}fps\n')
-    is_playing = saved_flag
 
 #Обработчик нажатия на плэй/паузу
 def play_pause():
