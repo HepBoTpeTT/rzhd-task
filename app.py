@@ -15,10 +15,10 @@ class SyncCheker:
         if min_frame >= max_frame: return
 
         if is_playing:
-            min_frame += 0.2
-            for player in self.video_players: player.update()
+            min_frame += 0.2 #Обновление минимальной временной метки 
+            for player in self.video_players: player.update() #Обновление кадра для каждого объекта видеоплеера
             print('--------------------------')
-        self.window.after(speed, self.update_min_frame)
+        self.window.after(speed, self.update_min_frame) #Функция запускается раз в speed времени главным окном tkinter
 
 
 class VideoPlayer:
