@@ -91,10 +91,6 @@ class VideoPlayer:
         except Exception as e:
             print(f"{e} : {e.__class__.__name__}")
 
-            if e.__class__.__name__ == "error":
-                print(f"Player {self.name} \t frame {self.frame_id}\t\tBROKEN")
-                self.frame_id += 1
-
             # Если видео закончилось, то сбрасываем счётчик кадров и запрещаем дальнейшее его воспроизведение
             if e is IndexError:
                 self.video_file.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -140,8 +136,7 @@ def main():
 
     #Наполнение GUI канвасами
     for index, video_path in enumerate(video_paths):
-        row = index // cells if index > 0 else 0
-        col = index % cells if index > 0 else 0
+        row, col = divmod(index, cells)
         sync.video_players.append(VideoPlayer(root, video_path, all_timestamps[index], row, col))
     sync.update_min_frame()
 
